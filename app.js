@@ -14,13 +14,16 @@ const User = require('./models/user');
 // const MONGODB_URI =
 //   'mongodb+srv://maximilian:9u4biljMQc4jjqbe@cluster0-ntrwp.mongodb.net/shop';
 
-const MONGODB_URI = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/yelp-camp';
+const MONGODB_URI = process.env.DB_URL || 'mongodb://127.0.0.1:27017/yelp-camp';
 
 const app = express();
+
 const store = new MongoDBStore({
   uri: MONGODB_URI,
   collection: 'sessions'
 });
+
+
 const csrfProtection = csrf();
 
 app.set('view engine', 'ejs');
