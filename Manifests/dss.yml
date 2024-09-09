@@ -17,11 +17,17 @@ spec:
           image: manoj3003/pipelie-cicd:22
           ports:
             - containerPort: 3000
-          volumeMounts:
-            - name: secret-volume
-              mountPath: /opt/secrets
-              readOnly: true
           env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: yelp-camp-secrets
+                  key: DB_URL
+            - name: SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: yelp-camp-secrets
+                  key: SECRET
             - name: CLOUDINARY_CLOUD_NAME
               valueFrom:
                 secretKeyRef:
@@ -42,42 +48,28 @@ spec:
                 secretKeyRef:
                   name: yelp-camp-secrets
                   key: MAPBOX_TOKEN
-            - name: DB_URL
-              valueFrom:
-                secretKeyRef:
-                  name: yelp-camp-secrets
-                  key: DB_URL
-            - name: SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: yelp-camp-secrets
-                  key: SECRET
+          volumeMounts:
+            - name: yelp-camp-storage
+              mountPath: /opt
+            - name: secrets
+              mountPath: /opt/secrets
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 30   # Adjust the initial delay here
+            initialDelaySeconds: 30
             timeoutSeconds: 10
           readinessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 30   # Adjust the initial delay here
+            initialDelaySeconds: 30
             timeoutSeconds: 10
       volumes:
-        - name: secret-volume
+        - name: yelp-camp-storage
+          persistentVolumeClaim:
+            claimName: yelp-camp-pvc
+        - name: secrets
           secret:
             secretName: yelp-camp-secrets
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: yelp-camp-service
-spec:
-  selector:
-    app: yelp-camp
-  ports:
-    - protocol: TCP
-      port: 3000
-      targetPort: 3010
-  type: LoadBalancer
