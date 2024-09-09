@@ -11,6 +11,8 @@ const flash = require('connect-flash');
 const errorController = require('./controllers/error');
 const User = require('./models/user');
 
+require('dotenv').config();
+
 // const MONGODB_URI =
 //   'mongodb+srv://maximilian:9u4biljMQc4jjqbe@cluster0-ntrwp.mongodb.net/shop';
 
@@ -35,14 +37,24 @@ const authRoutes = require('./routes/auth');
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(
-  session({
-    secret: 'my secret',
-    resave: false,
-    saveUninitialized: false,
-    store: store
-  })
-);
+
+// app.use(
+//   session({
+//     secret: 'my secret',
+//     resave: false,
+//     saveUninitialized: false,
+//     store: store
+//   })
+// );
+
+// Configure session middleware
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'my secret',
+  resave: false,
+  saveUninitialized: false,
+  store: store
+}));
+
 app.use(csrfProtection);
 app.use(flash());
 

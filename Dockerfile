@@ -10,11 +10,14 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
+# Copy the .env file into the working directory
+COPY .env ./
+
 # Copy the rest of the application code to the working directory
 COPY . .
 
-# Expose port 3000 (or the port your app is configured to listen on)
+# Expose port 8000 (or the port your app is configured to listen on)
 EXPOSE 3000
 
-# Start the application in production mode
+# Start the application
 CMD ["npm", "run", "start-server"]
