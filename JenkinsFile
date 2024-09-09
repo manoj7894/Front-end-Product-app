@@ -1,0 +1,172 @@
+pipeline {
+    agent any
+    
+    tools {
+        nodejs 'node22'
+    }
+
+
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('Docker_id')
+        DOCKER_IMAGE = "manoj3003/pipelie-cicd:${BUILD_NUMBER}"
+        OLD_IMAGE_TAG_PATTERN = "manoj3003/pipelie-cicd:*"  // Pattern to match old images
+        GIT_REPO_NAME = "Node-mail"
+        GIT_USER_NAME = "manoj7894"
+        DEPLOYMENT_FILE_PATH = "Manifests/dss.yml"  // Adjust the path if necessary
+        SCANNER_HOME= tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Cleanup Old Docker Images') {
+            steps {
+                script {
+                    echo "Cleaning up old Docker images..."
+                    
+                    // Get the list of old images matching the pattern
+                    def oldImages = sh(script: "docker images --format '{{.Repository}}:{{.Tag}}' | grep '${OLD_IMAGE_TAG_PATTERN}'", returnStdout: true).trim()
+                    
+                    if (oldImages) {
+                        oldImages.split('\n').each { image ->
+                            if (image != DOCKER_IMAGE) {
+                                echo "Attempting to remove old image ${image}"
+                                sh """
+                                    # Check if the image exists before trying to delete it
+                                    if docker images -q ${image} > /dev/null 2>&1; then
+                                        # Try to remove the image
+                                        docker rmi -f ${image} || echo 'Failed to remove image ${image} - might be in use or other error.'
+                                    else
+                                        echo 'Image ${image} does not exist.'
+                                    fi
+                                """
+                            }
+                        }
+                    } else {
+                        echo "No old images found matching pattern ${OLD_IMAGE_TAG_PATTERN}"
+                    }
+                }
+            }
+        }
+        
+        stage('GetCode') {
+            steps {
+                git branch: 'main', url: 'https://github.com/manoj7894/Node-mail.git'
+            }
+        }
+        
+        stage('Install Package Dependencies') {
+            steps {
+                sh "npm install"
+            }
+        }
+        /*
+        stage('unit test') {
+            steps {
+                sh "npm test"
+            }
+        } */
+        
+        stage ("Trivy filesystem scan") {
+            steps {
+                script {
+                    sh "trivy fs --format table -o fs-report.html ."
+                }
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh "docker build -t ${DOCKER_IMAGE} ."
+            }
+        }
+        
+        stage ("Trivy image scan") {
+            steps {
+                script {
+                    sh "trivy image ${DOCKER_IMAGE} > trivy.txt"
+                }
+            }
+        }
+        
+        stage ("SonarQube") {
+            steps {
+                withSonarQubeEnv('Sonar_Install') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Campground \
+                    -Dsonar.projectKey=Campground '''
+                }
+            }
+        }
+
+        stage('Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'Docker_id', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+
+        stage('Push') {
+            steps {
+                script {
+                    def dockerImage = docker.image(DOCKER_IMAGE)
+                    dockerImage.push() // Pushes the Docker image to the repository
+                }
+            }
+        }
+
+        stage('Update Deployment File') {
+            steps {
+                withCredentials([string(credentialsId: 'github_id', variable: 'GITHUB_TOKEN')]) {
+                    script {
+                        // Configure Git
+                        sh '''
+                            git config user.email "manojvarmapotthuri3003@gmail.com"
+                            git config user.name "Manojvarma Potthuri"
+                        '''
+
+                        // Check out the repository
+                        sh 'git checkout main'
+
+                        // Display the current content of the deployment file for debugging
+                        sh 'cat ${DEPLOYMENT_FILE_PATH}'
+
+                        // Update the image tag in deployment.yml
+                        sh '''
+                            # Use sed to replace the image tag dynamically
+                            sed -i "s|image: manoj3003/pipelie-cicd:[^[:space:]]*|image: manoj3003/pipelie-cicd:${BUILD_NUMBER}|g" ${DEPLOYMENT_FILE_PATH}
+                        '''
+
+                        // Check for changes and commit if necessary
+                        sh '''
+                            if git diff --quiet; then
+                                echo "No changes detected in ${DEPLOYMENT_FILE_PATH}"
+                            else
+                                git add ${DEPLOYMENT_FILE_PATH}
+                                git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                                git push -f https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            emailext attachLog: true,
+                subject: "Pipeline Status: ${BUILD_NUMBER}",
+                body: '''<html>
+                           <body>
+                              <p>Build Status: ${BUILD_STATUS}</p>
+                              <p>Build Number: ${BUILD_NUMBER}</p>
+                              <p>Check the <a href="${BUILD_URL}">console output</a>.</p>
+                           </body>
+                        </html>''',
+                to: 'manojvarmapotthutri@gmail.com',
+                from: 'jenkins@example.com',
+                replyTo: 'jenkins@example.com',
+                attachmentsPattern: 'trivy.txt',
+                mimeType: 'text/html'
+        }
+    }
+}
