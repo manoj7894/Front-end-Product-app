@@ -8,9 +8,9 @@ pipeline {
 
     environment {
         DOCKERHUB_CREDENTIALS = credentials('Docker_id')
-        DOCKER_IMAGE = "manoj3003/pipelie-cicd:${BUILD_NUMBER}"
-        OLD_IMAGE_TAG_PATTERN = "manoj3003/pipelie-cicd:*"  // Pattern to match old images
-        GIT_REPO_NAME = "Node-mail"
+        DOCKER_IMAGE = "manoj3003/database:${BUILD_NUMBER}"
+        OLD_IMAGE_TAG_PATTERN = "manoj3003/database:*"  // Pattern to match old images
+        GIT_REPO_NAME = "Manipulating"
         GIT_USER_NAME = "manoj7894"
         DEPLOYMENT_FILE_PATH = "Manifests/dss.yml"  // Adjust the path if necessary
         SCANNER_HOME= tool 'sonar-scanner'
@@ -46,10 +46,9 @@ pipeline {
                 }
             }
         }
-        
         stage('GetCode') {
             steps {
-                git branch: 'main', url: 'https://github.com/manoj7894/Node-mail.git'
+                git branch: 'main', url: 'https://github.com/manoj7894/Manipulating.git'
             }
         }
         
@@ -75,7 +74,11 @@ pipeline {
         
         stage('Build') {
             steps {
-                sh "docker build -t ${DOCKER_IMAGE} ."
+                script {
+                    withDockerRegistry(credentialsId: 'Docker_id', toolName: 'Docker') {
+                    sh "docker build -t ${DOCKER_IMAGE} ."
+                    }
+                }
             }
         }
         
@@ -96,19 +99,12 @@ pipeline {
             }
         }
 
-        stage('Login') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'Docker_id', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                }
-            }
-        }
-
         stage('Push') {
             steps {
                 script {
-                    def dockerImage = docker.image(DOCKER_IMAGE)
-                    dockerImage.push() // Pushes the Docker image to the repository
+                    withDockerRegistry(credentialsId: 'Docker_id', toolName: 'Docker') {
+                    sh "docker push ${DOCKER_IMAGE}"
+                    }
                 }
             }
         }
