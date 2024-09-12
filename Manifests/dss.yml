@@ -14,9 +14,11 @@ spec:
     spec:
       containers:
         - name: yelp-camp-container
-          image: manoj3003/pipelie-cicd:22
+          image: manoj3003/database:16
           ports:
             - containerPort: 3000
+      imagePullSecrets:
+        - name: regcred     # Reference to the Docker registry secret
           env:
             - name: DB_URL
               valueFrom:
