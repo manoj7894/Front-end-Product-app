@@ -48,7 +48,7 @@ pipeline {
         }
         stage('GetCode') {
             steps {
-                git branch: 'main', url: 'https://github.com/manoj7894/Manipulating.git'
+                git branch: 'main', url: 'https://github.com/manoj7894/Node-mail.git'
             }
         }
         
