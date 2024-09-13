@@ -1,43 +1,114 @@
 pipeline {
     agent any
-    
+
     tools {
         nodejs 'node22'
     }
 
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('Docker_id')
         DOCKER_IMAGE = "manoj3003/database:${BUILD_NUMBER}"
         OLD_IMAGE_TAG_PATTERN = "manoj3003/database:*"  // Pattern to match old images
         GIT_REPO_NAME = "Node-mail"
         GIT_USER_NAME = "manoj7894"
         DEPLOYMENT_FILE_PATH = "Manifests/dss.yml"  // Adjust the path if necessary
         SCANNER_HOME = tool 'sonar-scanner'
+        WORKSPACE_BASE = "/var/lib/jenkins/workspace" // Set this to the base path of your Jenkins workspaces
     }
 
     stages {
+        /*
+         stage('Cleanup Old Workspaces') {
+            steps {
+                script {
+                    echo "Cleaning up all workspaces except the current build..."
+
+                    // Get the current workspace directory
+                    def currentWorkspaceDir = env.WORKSPACE
+
+                    // Use a shell script to clean up old workspaces
+                    sh '''
+                        #!/bin/bash
+
+                        # Enable diagnostics
+                        set -x
+                        echo "Current workspace: ${currentWorkspaceDir}"
+
+                        # The directory we need to preserve
+                        PRESERVE_DIR="${currentWorkspaceDir}"
+
+                        # Base path for Jenkins workspaces
+                        BASE_PATH="${WORKSPACE_BASE}"
+
+                        # Ensure that the current build workspace directory exists
+                        if [ ! -d "$PRESERVE_DIR" ]; then
+                            echo "Current workspace directory $PRESERVE_DIR does not exist. Skipping cleanup."
+                            exit 0
+                        fi
+
+                        # Find and delete directories excluding the current build directory
+                        for dir in $(find $BASE_PATH -maxdepth 1 -type d ! -path "$PRESERVE_DIR" ! -path "$BASE_PATH"); do
+                            echo "Deleting old workspace: $dir"
+                            rm -rf "$dir"
+                        done
+                    '''
+                }
+            }
+        } */
+
+        stage('Check Old Docker Images') {
+            steps {
+                script {
+                    echo "Checking for old Docker images..."
+                    
+                    def oldImages = sh(script: "docker images --format '{{.Repository}}:{{.Tag}}' | grep '^manoj3003/database:' || true", returnStdout: true).trim()
+                    echo "Old images found: ${oldImages}"
+                    
+                    if (oldImages) {
+                        env.OLD_IMAGES_EXIST = 'true'
+                    } else {
+                        echo "No old images found."
+                        env.OLD_IMAGES_EXIST = 'false'
+                    }
+                }
+            }
+        }
+
         stage('Cleanup Old Docker Images') {
+            when {
+                expression { env.OLD_IMAGES_EXIST == 'true' }
+            }
             steps {
                 script {
                     echo "Cleaning up old Docker images..."
                     
-                    def oldImages = sh(script: "docker images --format '{{.Repository}}:{{.Tag}}' | grep '${OLD_IMAGE_TAG_PATTERN}'", returnStdout: true).trim()
+                    def oldImages = sh(script: "docker images --format '{{.Repository}}:{{.Tag}}' | grep '^manoj3003/database:' || true", returnStdout: true).trim()
+                    echo "Old images found for cleanup: ${oldImages}"
                     
                     if (oldImages) {
-                        oldImages.split('\n').each { image ->
-                            if (image != DOCKER_IMAGE) {
+                        def imagesToRemove = oldImages.split('\n').findAll { image ->
+                            image != DOCKER_IMAGE
+                        }
+                        
+                        if (imagesToRemove) {
+                            imagesToRemove.each { image ->
                                 echo "Attempting to remove old image ${image}"
-                                sh """
-                                    if docker images -q ${image} > /dev/null 2>&1; then
-                                        docker rmi -f ${image} || echo 'Failed to remove image ${image} - might be in use or other error.'
-                                    else
-                                        echo 'Image ${image} does not exist.'
-                                    fi
-                                """
+                                try {
+                                    sh """
+                                        if docker images -q ${image} > /dev/null 2>&1; then
+                                            docker rmi -f ${image} || echo 'Failed to remove image ${image} - might be in use or other error.'
+                                        else
+                                            echo 'Image ${image} does not exist.'
+                                        fi
+                                    """
+                                } catch (Exception e) {
+                                    echo "Error while attempting to remove image ${image}: ${e.getMessage()}"
+                                }
                             }
+                        } else {
+                            echo "No old images to remove."
                         }
                     } else {
-                        echo "No old images found matching pattern ${OLD_IMAGE_TAG_PATTERN}"
+                        echo "No old images found matching pattern 'manoj3003/database:'"
                     }
                 }
             }
@@ -55,7 +126,7 @@ pipeline {
             }
         }
         
-        stage('GetCode') {
+        stage('Get Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/manoj7894/Node-mail.git'
             }
@@ -77,7 +148,7 @@ pipeline {
         }
         
         /*
-        stage('unit test') {
+        stage('Unit Test') {
             when {
                 expression { env.TEST_SCRIPT_EXISTS == 'true' }
             }
@@ -94,11 +165,10 @@ pipeline {
             }
         } */
         
-        stage('OWASP SCAN') {
+        stage('OWASP Scan') {
             when {
                 expression {
-                    // Check if pom.xml exists
-                    return fileExists('pom.xml')
+                    fileExists('pom.xml')
                 }
             }
             steps {
@@ -107,7 +177,7 @@ pipeline {
             }
         }
         
-        stage("Trivy filesystem scan") {
+        stage('Trivy Filesystem Scan') {
             steps {
                 script {
                     sh "trivy fs --format table -o fs-report.html ."
@@ -125,7 +195,7 @@ pipeline {
             }
         }
         
-        stage("Trivy image scan") {
+        stage('Trivy Image Scan') {
             steps {
                 script {
                     sh "trivy image ${DOCKER_IMAGE} > trivy.txt"
@@ -133,15 +203,16 @@ pipeline {
             }
         }
         
-        stage("SonarQube") {
+        stage('SonarQube') {
             steps {
                 withSonarQubeEnv('Sonar_Install') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Campground \
-                    -Dsonar.projectKey=Campground '''
+                    sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Campground \
+                    -Dsonar.projectKey=Campground \
+                    -Dsonar.host.url=http://65.0.180.233:9000'''
                 }
             }
         }
-
+        
         stage('Push') {
             steps {
                 script {
@@ -151,7 +222,7 @@ pipeline {
                 }
             }
         }
-
+        
         stage('Update Deployment File') {
             steps {
                 withCredentials([string(credentialsId: 'github_id', variable: 'GITHUB_TOKEN')]) {
@@ -160,14 +231,14 @@ pipeline {
                             git config user.email "manojvarmapotthuri3003@gmail.com"
                             git config user.name "Manojvarma Potthuri"
                         '''
-
+                        
                         sh 'git checkout main'
                         sh 'cat ${DEPLOYMENT_FILE_PATH}'
-
+                        
                         sh '''
                             sed -i "s|image: manoj3003/database:[^[:space:]]*|image: manoj3003/database:${BUILD_NUMBER}|g" ${DEPLOYMENT_FILE_PATH}
                         '''
-
+                        
                         sh '''
                             if git diff --quiet; then
                                 echo "No changes detected in ${DEPLOYMENT_FILE_PATH}"
@@ -181,6 +252,7 @@ pipeline {
                 }
             }
         }
+    }
     
     post {
         always {
